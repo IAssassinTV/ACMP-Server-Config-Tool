@@ -1,4 +1,5 @@
 import os
+import re
 import struct
 import ctypes
 import sys
@@ -130,10 +131,19 @@ ALGO = 2  # LZO2A
 DECOMP_BUFFER_SIZE = 32768
 COMP_BUFFER_SIZE = 0
 
+def get_xml_subfolder(archive_name):
+    """
+    Folder inside xml_folder that holds the XML of an archive:
+    .cxb -> CXB, *_step_N.smallpox -> STEP_N, *_param_changes.smallpox -> PARAM_CHANGES.
+    """
+    name = archive_name.lower()
+    if name.endswith(".cxb"):
+        return "CXB"
+    match = re.search(r"_(step_\d+|param_changes)\.smallpox$", name)
+    return match.group(1).upper() if match else ""
+
 def pack_xml_files():
-    # Input folder
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    input_folder = os.path.join(script_dir, "xml_folder")
 
     # Ask user for full filename
     while True:
@@ -151,6 +161,10 @@ def pack_xml_files():
         except KeyboardInterrupt:
             print("\nOperation cancelled.")
             return
+
+    # Input folder
+    input_folder = os.path.join(script_dir, "xml_folder", get_xml_subfolder(os.path.basename(output_file)))
+    print(f"Packing from: {input_folder}")
 
     # Get all XML files from the input folder
     file_names = sorted(f for f in os.listdir(input_folder) if f.lower().endswith('.xml'))

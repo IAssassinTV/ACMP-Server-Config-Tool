@@ -151,13 +151,6 @@ def decompress_LZO2A(compressed_data, expected_decompressed_size):
     print("Decompressed successfully")
     return dst.raw
 
-# Create output directory if it doesn't exist
-script_dir = os.path.dirname(os.path.abspath(__file__))
-output_dir = os.path.join(script_dir, "xml_folder")
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-    print(f"Created directory: {os.path.abspath(output_dir)}")
-
 # Find all supported archive files in the script's directory
 script_dir = os.path.dirname(os.path.abspath(__file__))
 archive_files = [
@@ -188,6 +181,21 @@ while True:
         print("Please enter a valid number")
 
 print(f"\nSelected file: {binary_file_path}")
+
+def get_xml_subfolder(archive_name):
+    """
+    Folder inside xml_folder that holds the XML of an archive:
+    .cxb -> CXB, *_step_N.smallpox -> STEP_N, *_param_changes.smallpox -> PARAM_CHANGES.
+    """
+    name = archive_name.lower()
+    if name.endswith(".cxb"):
+        return "CXB"
+    match = re.search(r"_(step_\d+|param_changes)\.smallpox$", name)
+    return match.group(1).upper() if match else ""
+
+output_dir = os.path.join(script_dir, "xml_folder", get_xml_subfolder(os.path.basename(binary_file_path)))
+os.makedirs(output_dir, exist_ok=True)
+print(f"Extracting to: {output_dir}")
 
 magic_number = 0x1004FA9957FBAA33
 magic_bytes = struct.pack("<Q", magic_number)
@@ -242,7 +250,7 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
     Decompression buffer size: {de_bufsize}
     Compression buffer size: {en_bufsize}""")
 
-    ref = f"{entry_name}.xml"
+    ref = os.path.join(output_dir, f"{entry_name}.xml")
     if os.path.exists(ref):
         print(f"\nReference file size: {os.path.getsize(ref)}\n")
     else:
