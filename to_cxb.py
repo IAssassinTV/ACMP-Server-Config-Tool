@@ -6,6 +6,10 @@ import sys
 from zlib import adler32, crc32
 from hashlib import md5
 
+# Windows consoles may not encode the status symbols (✅, ⚠️); replace them instead of crashing.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 # Try to load LZO2 library with different possible names/paths
 lzo2 = None
 lzo_paths = [

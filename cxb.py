@@ -9,6 +9,10 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
+# Windows consoles may not encode the status symbols (✅, ⚠️); replace them instead of crashing.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 def format_xml_minimal(file_path):
     """
     Format an XML file with proper indentation and structure.
@@ -317,8 +321,9 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
             os.makedirs(output_dir)
             print(f"Created directory: {os.path.abspath(output_dir)}")
 
-        # Combine all chunks
-        full_data = b"".join(chunks)
+        # Combine all chunks. The stored XML ends with a NUL terminator; drop it so the extracted file is
+        # plain text (git diffs it normally). to_cxb.py adds it back when packing.
+        full_data = b"".join(chunks).rstrip(b"\x00")
         if full_data:
             f_out = os.path.join(output_dir, f"{entry_name}.xml")
             with open(f_out, "wb") as f:
