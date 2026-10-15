@@ -8,6 +8,7 @@ All notable changes to CXBTool are listed here, newest first.
 - `to_cxb.py` asks which `.cxb` layout to write: **ACB** (32+8 file table entries) or
   **ACR/AC3** (40+8 file table entries). One `main` branch now covers every game; the separate
   `v1` (ACB) and `v2` (ACR/AC3) branches are retired.
+- README explains requirements, the extract/edit/pack workflow and the `.cxb` layouts.
 
 ### Changed
 - `cxb.py` indents extracted `.cxb` XML by adding line breaks between tags only. Attributes and
