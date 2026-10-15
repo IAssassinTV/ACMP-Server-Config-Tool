@@ -1,4 +1,4 @@
-# CXBTool
+# ACMP-Server-Config-Tool
 
 Extract and repack the game settings archives (`.cxb` and `.smallpox`) used by
 Assassin's Creed Brotherhood (ACB), Revelations (ACR) and III (AC3).

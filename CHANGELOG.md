@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to CXBTool are listed here, newest first.
+All notable changes to ACMP-Server-Config-Tool are listed here, newest first.
 
 ## 2026-10-15
 
