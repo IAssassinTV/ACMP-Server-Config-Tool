@@ -135,6 +135,31 @@ ALGO = 2  # LZO2A
 DECOMP_BUFFER_SIZE = 32768
 COMP_BUFFER_SIZE = 0
 
+# .cxb file table layouts: each entry is a NUL-padded name field followed by an 8-byte size field
+CXB_LAYOUTS = [
+    ("ACB", 32),      # 32+8
+    ("ACR/AC3", 40),  # 40+8
+]
+SIZE_FIELD_SIZE = 8
+
+def ask_cxb_layout():
+    """
+    Ask which game the .cxb is for and return the size of its file table name field.
+    """
+    print("Available .cxb layouts:")
+    for i, (game, name_size) in enumerate(CXB_LAYOUTS, 1):
+        print(f"{i}. {game} ({name_size}+{SIZE_FIELD_SIZE} buffer)")
+
+    while True:
+        try:
+            selection = input(f"Select the .cxb layout (1-{len(CXB_LAYOUTS)}): ").strip()
+            idx = int(selection) - 1
+            if 0 <= idx < len(CXB_LAYOUTS):
+                return CXB_LAYOUTS[idx][1]
+            print(f"Please enter a number between 1 and {len(CXB_LAYOUTS)}")
+        except ValueError:
+            print("Please enter a valid number")
+
 def get_xml_subfolder(archive_name):
     """
     Folder inside xml_folder that holds the XML of an archive:
@@ -215,6 +240,8 @@ def pack_xml_files():
         print(f"✅ Successfully created {output_file} with 1 XML file")
         return
 
+    name_size = ask_cxb_layout()
+
     file_infos = []
     file_datas = []
 
@@ -228,12 +255,17 @@ def pack_xml_files():
             print(f"⚠️  Warning: Could not process {name} - {str(e)}. Skipping...")
             continue
 
+        entry_name = name.split(".")[0].encode("ascii")
+        if len(entry_name) >= name_size:
+            print(f"⚠️  Warning: {name} - name is too long for a {name_size}+{SIZE_FIELD_SIZE} entry. Skipping...")
+            continue
+
         file_data = build_file_data(xml_data)
         file_datas.append(file_data)
 
         # Build FileInfo
-        name_buffer = name.split(".")[0].encode("ascii").ljust(40, b"\x00")
-        size_str = str(len(file_data)).encode("ascii").ljust(8, b"\x00")
+        name_buffer = entry_name.ljust(name_size, b"\x00")
+        size_str = str(len(file_data)).encode("ascii").ljust(SIZE_FIELD_SIZE, b"\x00")
         file_info = name_buffer + size_str
         file_infos.append(file_info)
 
@@ -244,7 +276,7 @@ def pack_xml_files():
         f.write(all_infos)
 
         # Write end marker
-        f.write(b"0".ljust(48, b"\x00"))
+        f.write(b"0".ljust(name_size + SIZE_FIELD_SIZE, b"\x00"))
 
         # Write file datas
         all_data = b''.join(file_datas)
