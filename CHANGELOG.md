@@ -5,18 +5,19 @@ All notable changes to ACMP-Server-Config-Tool are listed here, newest first.
 ## 2026-10-15
 
 ### Added
-- `to_cxb.py` asks which `.cxb` layout to write: **ACB** (32+8 file table entries) or
+- `repack.py` asks which `.cxb` layout to write: **ACB** (32+8 file table entries) or
   **ACR/AC3** (40+8 file table entries). One `main` branch now covers every game; the separate
   `v1` (ACB) and `v2` (ACR/AC3) branches are retired.
 - README explains requirements, the extract/edit/pack workflow and the `.cxb` layouts.
 
 ### Changed
-- `cxb.py` indents extracted `.cxb` XML by adding line breaks between tags only. Attributes and
+- Renamed `cxb.py` to `extract.py` and `to_cxb.py` to `repack.py`.
+- `extract.py` indents extracted `.cxb` XML by adding line breaks between tags only. Attributes and
   tags stay exactly as stored (for example `<a x="1" />` keeps its space).
-- `to_cxb.py` removes that whitespace again when packing a `.cxb`, so the XML is stored raw on a
+- `repack.py` removes that whitespace again when packing a `.cxb`, so the XML is stored raw on a
   single line. An unedited ACB or ACR archive now repacks byte-identical to the original, and
   archives get smaller.
-- `to_cxb.py` skips a `.cxb` entry with a warning, instead of writing a corrupt file table,
+- `repack.py` skips a `.cxb` entry with a warning, instead of writing a corrupt file table,
   if its name is too long for the chosen layout.
 
 ## 2026-09-25

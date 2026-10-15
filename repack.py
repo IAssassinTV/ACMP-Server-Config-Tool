@@ -85,7 +85,7 @@ XML_TOKEN = re.compile(rb'<(?:"[^"]*"|\'[^\']*\'|[^\'">])*>|[^<]+')
 
 def minify_xml(xml_data: bytes) -> bytes:
     """
-    Undo the indentation cxb.py adds on extraction: drop the whitespace between tags so the
+    Undo the indentation extract.py adds on extraction: drop the whitespace between tags so the
     XML is packed raw, on a single line.
     """
     return b"".join(t for t in XML_TOKEN.findall(xml_data) if t.strip())

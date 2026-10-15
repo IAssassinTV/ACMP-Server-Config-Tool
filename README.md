@@ -3,8 +3,8 @@
 Extract and repack the game settings archives (`.cxb` and `.smallpox`) used by
 Assassin's Creed Brotherhood (ACB), Revelations (ACR) and III (AC3).
 
-- `cxb.py` extracts an archive into editable, indented XML files.
-- `to_cxb.py` packs those XML files back into an archive.
+- `extract.py` extracts an archive into editable, indented XML files.
+- `repack.py` packs those XML files back into an archive.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ Put the scripts and the archives you want to work on in the same folder.
 ### 1. Extract
 
 ```
-python cxb.py
+python extract.py
 ```
 
 Choose an archive from the list. Its XML is saved under `xml_folder/`:
@@ -42,10 +42,10 @@ whitespace between tags is added; the attributes and tags themselves are not cha
 
 Edit the XML files in `xml_folder/` with any text editor.
 
-### 3. Pack
+### 3. Repack
 
 ```
-python to_cxb.py
+python repack.py
 ```
 
 1. Enter the output filename, including the extension (`.cxb` or `.smallpox`). The extension

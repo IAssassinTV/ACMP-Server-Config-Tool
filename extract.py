@@ -19,7 +19,7 @@ def format_xml_minimal(file_path):
     """
     Indent an XML file with one tag per line.
     Only whitespace between tags is added, so attributes and tags stay exactly as stored and
-    to_cxb.py can restore the raw XML by removing that whitespace again.
+    repack.py can restore the raw XML by removing that whitespace again.
     This function is called automatically after extraction.
     """
     try:
@@ -298,7 +298,7 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
             print(f"Created directory: {os.path.abspath(output_dir)}")
 
         # Combine all chunks. The stored XML ends with a NUL terminator; drop it so the extracted file is
-        # plain text (git diffs it normally). to_cxb.py adds it back when packing.
+        # plain text (git diffs it normally). repack.py adds it back when packing.
         full_data = b"".join(chunks).rstrip(b"\x00")
         if full_data:
             f_out = os.path.join(output_dir, f"{entry_name}.xml")
