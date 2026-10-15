@@ -7,66 +7,59 @@ import ctypes
 from zlib import adler32
 from pathlib import Path
 import xml.etree.ElementTree as ET
-from xml.dom import minidom
 
 # Windows consoles may not encode the status symbols (✅, ⚠️); replace them instead of crashing.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
 
+# A tag (attribute values may contain '>') or the text between two tags
+XML_TOKEN = re.compile(rb'<(?:"[^"]*"|\'[^\']*\'|[^\'">])*>|[^<]+')
+
 def format_xml_minimal(file_path):
     """
-    Format an XML file with proper indentation and structure.
+    Indent an XML file with one tag per line.
+    Only whitespace between tags is added, so attributes and tags stay exactly as stored and
+    to_cxb.py can restore the raw XML by removing that whitespace again.
     This function is called automatically after extraction.
     """
     try:
         # Read the file in binary to preserve exact bytes
         with open(file_path, 'rb') as f:
-            content = f.read().decode('utf-8')
+            content = f.read()
 
-        # Parse the XML content
         try:
-            root = ET.fromstring(content)
+            ET.fromstring(content)
         except ET.ParseError as e:
-            print(f"Warning: XML parsing error in {file_path}: {e}")
-            # Try to fix common XML issues
-            content = fix_xml_issues(content)
-            try:
-                root = ET.fromstring(content)
-            except ET.ParseError:
-                print(f"Could not fix XML structure in {file_path}")
+            print(f"Warning: XML parsing error in {file_path}: {e}. Leaving it unformatted.")
+            return False
+
+        tokens = [t for t in XML_TOKEN.findall(content) if t.strip()]
+        lines = []
+        depth = 0
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            if token.startswith(b'</'):
+                depth = max(0, depth - 1)
+                lines.append(b'  ' * depth + token)
+            elif not token.startswith(b'<'):
+                # Text next to child elements: indenting around it would change the text
+                print(f"Warning: {file_path} mixes text and elements. Leaving it unformatted.")
                 return False
-
-        # Convert to string with proper formatting
-        rough_string = ET.tostring(root, encoding='unicode')
-
-        # Parse with minidom for pretty printing
-        reparsed = minidom.parseString(rough_string)
-
-        # Format with proper indentation
-        formatted_xml = reparsed.toprettyxml(indent="  ", encoding=None)
-
-        # Clean up the formatting - remove extra blank lines and fix XML declaration
-        lines = formatted_xml.split('\n')
-        cleaned_lines = []
-
-        for i, line in enumerate(lines):
-            line = line.rstrip()
-            if line:  # Skip empty lines
-                # Fix XML declaration to be on first line without extra whitespace
-                if line.strip().startswith('<?xml'):
-                    cleaned_lines.append('<?xml version="1.0"?>')
-                else:
-                    # Keep all other lines including root elements
-                    cleaned_lines.append(line)
-
-        # Join lines and ensure proper ending
-        result = '\n'.join(cleaned_lines)
-        if not result.endswith('\n'):
-            result += '\n'
+            elif i + 2 < len(tokens) and not tokens[i + 1].startswith(b'<') and tokens[i + 2].startswith(b'</'):
+                # Keep <tag>text</tag> on one line
+                lines.append(b'  ' * depth + b''.join(tokens[i:i + 3]))
+                i += 3
+                continue
+            else:
+                lines.append(b'  ' * depth + token)
+                if not token.endswith(b'/>') and not token.startswith((b'<?', b'<!')):
+                    depth += 1
+            i += 1
 
         # Write back the file
         with open(file_path, 'wb') as f:
-            f.write(result.encode('utf-8'))
+            f.write(b'\n'.join(lines) + b'\n')
 
         print(f"Formatted: {os.path.basename(file_path)}")
         return True
@@ -74,23 +67,6 @@ def format_xml_minimal(file_path):
     except Exception as e:
         print(f"Error processing {file_path}: {str(e)}")
         return False
-
-def fix_xml_issues(content):
-    """
-    Fix common XML structural issues.
-    """
-    # Remove null bytes if present
-    content = content.replace('\x00', '')
-
-    # Ensure content starts with XML declaration if it has one
-    if not content.strip().startswith('<?xml') and '<root>' in content:
-        content = '<?xml version="1.0"?>' + content
-
-    # Fix missing closing tags (basic attempt)
-    # This is a simple fix - more complex issues would require more sophisticated parsing
-    content = re.sub(r'<([^<>]+)([^/>]*)>', lambda m: f'<{m.group(1)}{m.group(2)}>' if m.group(2).endswith('/') else f'<{m.group(1)}{m.group(2)}>', content)
-
-    return content
 
 # Try to load LZO2 library with different possible names/paths
 lzo2 = None

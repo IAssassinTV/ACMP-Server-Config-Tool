@@ -80,10 +80,23 @@ def compress_LZO2A_999(data: bytes) -> bytes:
 
     return bytes(dst[:dst_len.value])
 
-def read_xml_as_bytes(path: str) -> bytes:
-    # Preserve the XML bytes exactly as stored on disk.
+# A tag (attribute values may contain '>') or the text between two tags
+XML_TOKEN = re.compile(rb'<(?:"[^"]*"|\'[^\']*\'|[^\'">])*>|[^<]+')
+
+def minify_xml(xml_data: bytes) -> bytes:
+    """
+    Undo the indentation cxb.py adds on extraction: drop the whitespace between tags so the
+    XML is packed raw, on a single line.
+    """
+    return b"".join(t for t in XML_TOKEN.findall(xml_data) if t.strip())
+
+def read_xml_as_bytes(path: str, minify: bool = False) -> bytes:
+    # Preserve the XML bytes exactly as stored on disk, apart from the optional minify.
     with open(path, "rb") as f:
         xml_data = f.read()
+
+    if minify:
+        xml_data = minify_xml(xml_data)
 
     # Ensure the XML ends with a null byte
     if not xml_data.endswith(b'\x00'):
@@ -250,7 +263,7 @@ def pack_xml_files():
         print(f"Processing {name}...")
 
         try:
-            xml_data = read_xml_as_bytes(path)
+            xml_data = read_xml_as_bytes(path, minify=True)
         except Exception as e:
             print(f"⚠️  Warning: Could not process {name} - {str(e)}. Skipping...")
             continue

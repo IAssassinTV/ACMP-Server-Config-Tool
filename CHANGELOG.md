@@ -10,6 +10,11 @@ All notable changes to CXBTool are listed here, newest first.
   `v1` (ACB) and `v2` (ACR/AC3) branches are retired.
 
 ### Changed
+- `cxb.py` indents extracted `.cxb` XML by adding line breaks between tags only. Attributes and
+  tags stay exactly as stored (for example `<a x="1" />` keeps its space).
+- `to_cxb.py` removes that whitespace again when packing a `.cxb`, so the XML is stored raw on a
+  single line. An unedited ACB or ACR archive now repacks byte-identical to the original, and
+  archives get smaller.
 - `to_cxb.py` skips a `.cxb` entry with a warning, instead of writing a corrupt file table,
   if its name is too long for the chosen layout.
 
