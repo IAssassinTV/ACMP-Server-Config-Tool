@@ -8,9 +8,39 @@ from zlib import adler32
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-# Windows consoles may not encode the status symbols (✅, ⚠️); replace them instead of crashing.
+# Windows consoles may not encode every path or name; replace what they cannot encode instead of crashing.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
+
+# State messages are colored when the console supports ANSI escapes (Windows 10+ needs them enabled).
+def _supports_color():
+    if not sys.stdout.isatty():
+        return False
+    if os.name != "nt":
+        return True
+    try:
+        kernel32 = ctypes.windll.kernel32
+        mode = ctypes.c_uint32()
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    except Exception:
+        return False
+
+USE_COLOR = _supports_color()
+
+def _color(message, code):
+    return f"\033[{code}m{message}\033[0m" if USE_COLOR else message
+
+def success(message):
+    print(_color(message, "32"))  # green
+
+def warning(message):
+    print(_color(message, "33"))  # yellow
+
+def error(message):
+    print(_color(message, "31"))  # red
 
 # A tag (attribute values may contain '>') or the text between two tags
 XML_TOKEN = re.compile(rb'<(?:"[^"]*"|\'[^\']*\'|[^\'">])*>|[^<]+')
@@ -20,6 +50,8 @@ def format_xml_minimal(file_path):
     Indent an XML file with one tag per line.
     Only whitespace between tags is added, so attributes and tags stay exactly as stored and
     repack.py can restore the raw XML by removing that whitespace again.
+    Text that sits next to elements (mixed content) is kept byte for byte and stays glued to the
+    tag before it, because whitespace added next to it would become part of the text.
     This function is called automatically after extraction.
     """
     try:
@@ -30,42 +62,49 @@ def format_xml_minimal(file_path):
         try:
             ET.fromstring(content)
         except ET.ParseError as e:
-            print(f"Warning: XML parsing error in {file_path}: {e}. Leaving it unformatted.")
+            warning(f"XML parsing error in {file_path}: {e}. Leaving it unformatted.")
             return False
 
         tokens = [t for t in XML_TOKEN.findall(content) if t.strip()]
         lines = []
         depth = 0
-        i = 0
-        while i < len(tokens):
-            token = tokens[i]
+        prev_was_text = False
+        for token in tokens:
+            if not token.startswith(b'<'):
+                # Text next to child elements: only whitespace between tags may change, so keep the
+                # text as stored and append it to the line it follows (or precede it with nothing).
+                if lines:
+                    lines[-1] += token
+                else:
+                    lines.append(token)
+                prev_was_text = True
+                continue
+
             if token.startswith(b'</'):
                 depth = max(0, depth - 1)
-                lines.append(b'  ' * depth + token)
-            elif not token.startswith(b'<'):
-                # Text next to child elements: indenting around it would change the text
-                print(f"Warning: {file_path} mixes text and elements. Leaving it unformatted.")
-                return False
-            elif i + 2 < len(tokens) and not tokens[i + 1].startswith(b'<') and tokens[i + 2].startswith(b'</'):
-                # Keep <tag>text</tag> on one line
-                lines.append(b'  ' * depth + b''.join(tokens[i:i + 3]))
-                i += 3
-                continue
+
+            if prev_was_text:
+                # Indenting here would add whitespace to the text node before this tag
+                lines[-1] += token
             else:
                 lines.append(b'  ' * depth + token)
-                if not token.endswith(b'/>') and not token.startswith((b'<?', b'<!')):
-                    depth += 1
-            i += 1
+            prev_was_text = False
 
-        # Write back the file
+            if not token.startswith((b'</', b'<?', b'<!')) and not token.endswith(b'/>'):
+                depth += 1
+
+        # Write back the file. A newline after trailing text would become part of the text node.
+        output = b'\n'.join(lines)
+        if not prev_was_text:
+            output += b'\n'
         with open(file_path, 'wb') as f:
-            f.write(b'\n'.join(lines) + b'\n')
+            f.write(output)
 
-        print(f"Formatted: {os.path.basename(file_path)}")
+        success(f"Formatted: {os.path.basename(file_path)}")
         return True
 
     except Exception as e:
-        print(f"Error processing {file_path}: {str(e)}")
+        error(f"Error processing {file_path}: {str(e)}")
         return False
 
 # Try to load LZO2 library with different possible names/paths
@@ -85,7 +124,7 @@ if sys.platform == 'win32':
 for path in lzo_paths:
     try:
         lzo2 = ctypes.CDLL(path)
-        print(f"Successfully loaded LZO2 library from: {path}")
+        success(f"Successfully loaded LZO2 library from: {path}")
         break
     except (OSError, FileNotFoundError):
         continue
@@ -95,7 +134,7 @@ if lzo2 is None:
     dll_path = os.path.join(script_dir, 'lzo2.dll')
 
     print("="*80)
-    print("LZO2 library not found. To fix this:")
+    error("LZO2 library not found. To fix this:")
     print(f"1. Download 'lzo2.dll' from a trusted source")
     print(f"2. Save it to: {dll_path}")
     print("3. Run the script again")
@@ -128,7 +167,7 @@ def decompress_LZO2A(compressed_data, expected_decompressed_size):
     if result:
         raise ValueError(f"Decompression failed with code {result}")
 
-    print("Decompressed successfully")
+    success("Decompressed successfully")
     return dst.raw
 
 # Find all supported archive files in the script's directory
@@ -156,22 +195,24 @@ while True:
         if 0 <= idx < len(archive_files):
             binary_file_path = os.path.join(script_dir, archive_files[idx])
             break
-        print(f"Please enter a number between 1 and {len(archive_files)}")
+        warning(f"Please enter a number between 1 and {len(archive_files)}")
     except ValueError:
-        print("Please enter a valid number")
+        warning("Please enter a valid number")
 
 print(f"\nSelected file: {binary_file_path}")
 
 def get_xml_subfolder(archive_name):
     """
-    Folder inside xml_folder that holds the XML of an archive:
-    .cxb -> CXB, *_step_N.smallpox -> STEP_N, *_param_changes.smallpox -> PARAM_CHANGES.
+    Folder inside xml_folder that holds the XML of an archive: .cxb -> CXB, a .smallpox -> the part
+    of its name after gamesettings_c<number>_ in upper case with words split by underscores, e.g.
+    *_step_0 -> STEP_0, *_param_changes -> PARAM_CHANGES, *_TestCompatPack -> TEST_COMPAT_PACK.
     """
-    name = archive_name.lower()
-    if name.endswith(".cxb"):
+    if archive_name.lower().endswith(".cxb"):
         return "CXB"
-    match = re.search(r"_(step_\d+|param_changes)\.smallpox$", name)
-    return match.group(1).upper() if match else ""
+    match = re.search(r"_c\d+_(.+)\.smallpox$", archive_name, re.IGNORECASE)
+    if not match:
+        return ""
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", match.group(1)).upper()
 
 output_dir = os.path.join(script_dir, "xml_folder", get_xml_subfolder(os.path.basename(binary_file_path)))
 os.makedirs(output_dir, exist_ok=True)
@@ -222,19 +263,18 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
     algo, s = extract_starting_bytes(s, 1, True)
     en_bufsize, s = extract_starting_bytes(s, 2, True) # size of buffer to hold compressed data
     de_bufsize, s = extract_starting_bytes(s, 2, True) # size of buffer to hold decompressed data
-    print(f"""Segment data:
-    Uncompressed XML size: {size}
-    Magic: {magic}
-    Version: {version}
-    Algo: {algo}
-    Decompression buffer size: {de_bufsize}
-    Compression buffer size: {en_bufsize}""")
+    print(f"Segment data:\n"
+          f"    Uncompressed XML size: {size}\n"
+          f"    Magic: {magic}\n"
+          f"    Version: {version}\n"
+          f"    Algo: {algo}\n"
+          f"    Decompression buffer size: {de_bufsize}\n"
+          f"    Compression buffer size: {en_bufsize}")
 
     ref = os.path.join(output_dir, f"{entry_name}.xml")
     if os.path.exists(ref):
-        print(f"\nReference file size: {os.path.getsize(ref)}\n")
-    else:
-        print()
+        print(f"Reference file size: {os.path.getsize(ref)}")
+    print()
 
     try:
         offset = 0  # Start of binary payload
@@ -256,12 +296,11 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
                     offset += 4
                     if en_size == 0 and de_size == 0 and checksum == 0:
                         break
-                    print(f"""Block data:
-                            Compressed: {is_compressed}
-                            Decompression size: {de_size}
-                            Compression size: {en_size}
-                            Checksum: {checksum}
-                        """)
+                    print(f"Block data:\n"
+                          f"    Compressed: {is_compressed}\n"
+                          f"    Decompression size: {de_size}\n"
+                          f"    Compression size: {en_size}\n"
+                          f"    Checksum: {checksum}")
                     # Extract compressed data
                     comp_data = s[offset:offset+en_size]
                     offset += en_size
@@ -269,7 +308,7 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
                     # Validate checksum
                     calc_checksum = adler32(comp_data, 0)
                     if calc_checksum != checksum:
-                        print(f"⚠️ Checksum mismatch at offset {offset}: expected {hex(checksum)}, got {hex(calc_checksum)}")
+                        warning(f"Checksum mismatch at offset {offset}: expected {hex(checksum)}, got {hex(calc_checksum)}")
 
                     # Decompress
                     chunk = decompress_LZO2A(comp_data, de_size)
@@ -279,17 +318,16 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
                     data_size = int.from_bytes(s[offset:offset+4], "little")
                     if data_size == 0:
                         break
-                    print(f"""Block data:
-                        Compressed: {is_compressed}
-                        Data size: {data_size}
-                        """)
+                    print(f"Block data:\n"
+                          f"    Compressed: {is_compressed}\n"
+                          f"    Data size: {data_size}")
                     offset += 4
                     chunk = s[offset:offset+data_size]
                     offset += data_size
                     chunks.append(chunk)
 
             except Exception as e:
-                print(f"❌ Error at offset {offset}: {e}")
+                error(f"Error at offset {offset}: {e}")
                 break
 
         # Create output directory if it doesn't exist
@@ -309,7 +347,7 @@ def extract_archive_entry(entry_name, entry_size, entry_index, use_pre_magic_nam
             if archive_ext == ".cxb":
                 format_xml_minimal(f_out)
     except Exception as e:
-        print(f"Decompression failed: {e}")
+        error(f"Decompression failed: {e}")
 
 def extract_cxb_archive(binary_file_path, data):
     pre_magic_data = data[:indices[0]]
@@ -322,19 +360,19 @@ def extract_cxb_archive(binary_file_path, data):
 
     print("Extracted segments:")
     segments = [(segments[i], int(segments[i + 1])) for i in range(0, len(segments) - 2, 2)]
-    print("XML, size:", segments)
+    for name, size in segments:
+        print(f"    {name}: {size}")
     for i in range(len(indices)):
-        print(f"Analyzing {segments[i][0]}")
+        print(f"\nAnalyzing {segments[i][0]}")
         extract_archive_entry(segments[i][0], segments[i][1], indices[i], True)
 
 def extract_smallpox_archive(binary_file_path, data):
     archive_stem = os.path.splitext(os.path.basename(binary_file_path))[0]
 
     print("Extracted segments:")
-    print("XML, size: []")
     for i in range(len(indices)):
         entry_name = archive_stem if len(indices) == 1 else f"{archive_stem}_{i + 1}"
-        print(f"Analyzing {entry_name}")
+        print(f"\nAnalyzing {entry_name}")
         extract_archive_entry(entry_name, len(data) - (indices[i] - 4), indices[i], False)
 
 if archive_ext == ".cxb":
@@ -357,5 +395,5 @@ if __name__ == "__main__":
         # The actual execution happens when the script is imported
         pass
     except Exception as e:
-        print(f"An error occurred: {e}")
+        error(f"An error occurred: {e}")
         sys.exit(1)

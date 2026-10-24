@@ -6,9 +6,39 @@ import sys
 from zlib import adler32, crc32
 from hashlib import md5
 
-# Windows consoles may not encode the status symbols (✅, ⚠️); replace them instead of crashing.
+# Windows consoles may not encode every path or name; replace what they cannot encode instead of crashing.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
+
+# State messages are colored when the console supports ANSI escapes (Windows 10+ needs them enabled).
+def _supports_color():
+    if not sys.stdout.isatty():
+        return False
+    if os.name != "nt":
+        return True
+    try:
+        kernel32 = ctypes.windll.kernel32
+        mode = ctypes.c_uint32()
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    except Exception:
+        return False
+
+USE_COLOR = _supports_color()
+
+def _color(message, code):
+    return f"\033[{code}m{message}\033[0m" if USE_COLOR else message
+
+def success(message):
+    print(_color(message, "32"))  # green
+
+def warning(message):
+    print(_color(message, "33"))  # yellow
+
+def error(message):
+    print(_color(message, "31"))  # red
 
 # Try to load LZO2 library with different possible names/paths
 lzo2 = None
@@ -150,8 +180,8 @@ COMP_BUFFER_SIZE = 0
 
 # .cxb file table layouts: each entry is a NUL-padded name field followed by an 8-byte size field
 CXB_LAYOUTS = [
-    ("ACB", 32),      # 32+8
-    ("ACR/AC3", 40),  # 40+8
+    ("ACB", 32),          # 32+8
+    ("ACR/AC3/AC4", 40),  # 40+8
 ]
 SIZE_FIELD_SIZE = 8
 
@@ -169,20 +199,46 @@ def ask_cxb_layout():
             idx = int(selection) - 1
             if 0 <= idx < len(CXB_LAYOUTS):
                 return CXB_LAYOUTS[idx][1]
-            print(f"Please enter a number between 1 and {len(CXB_LAYOUTS)}")
+            warning(f"Please enter a number between 1 and {len(CXB_LAYOUTS)}")
         except ValueError:
-            print("Please enter a valid number")
+            warning("Please enter a valid number")
+
+# .smallpox layouts: whether the file ends with a 0x01 byte after the compressed data
+SMALLPOX_LAYOUTS = [
+    ("AC3", True),
+    ("AC4", False),
+]
+
+def ask_smallpox_layout():
+    """
+    Ask which game the .smallpox is for and return whether it ends with the 0x01 byte.
+    """
+    print("Available .smallpox layouts:")
+    for i, (game, trailing_byte) in enumerate(SMALLPOX_LAYOUTS, 1):
+        print(f"{i}. {game} ({'ends with 0x01' if trailing_byte else 'no trailing byte'})")
+
+    while True:
+        try:
+            selection = input(f"Select the .smallpox layout (1-{len(SMALLPOX_LAYOUTS)}): ").strip()
+            idx = int(selection) - 1
+            if 0 <= idx < len(SMALLPOX_LAYOUTS):
+                return SMALLPOX_LAYOUTS[idx][1]
+            warning(f"Please enter a number between 1 and {len(SMALLPOX_LAYOUTS)}")
+        except ValueError:
+            warning("Please enter a valid number")
 
 def get_xml_subfolder(archive_name):
     """
-    Folder inside xml_folder that holds the XML of an archive:
-    .cxb -> CXB, *_step_N.smallpox -> STEP_N, *_param_changes.smallpox -> PARAM_CHANGES.
+    Folder inside xml_folder that holds the XML of an archive: .cxb -> CXB, a .smallpox -> the part
+    of its name after gamesettings_c<number>_ in upper case with words split by underscores, e.g.
+    *_step_0 -> STEP_0, *_param_changes -> PARAM_CHANGES, *_TestCompatPack -> TEST_COMPAT_PACK.
     """
-    name = archive_name.lower()
-    if name.endswith(".cxb"):
+    if archive_name.lower().endswith(".cxb"):
         return "CXB"
-    match = re.search(r"_(step_\d+|param_changes)\.smallpox$", name)
-    return match.group(1).upper() if match else ""
+    match = re.search(r"_c\d+_(.+)\.smallpox$", archive_name, re.IGNORECASE)
+    if not match:
+        return ""
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", match.group(1)).upper()
 
 def pack_xml_files():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -192,10 +248,10 @@ def pack_xml_files():
         try:
             filename = input("Enter full filename to save as (including .cxb or .smallpox extension): ").strip()
             if not filename:
-                print("Filename cannot be empty.")
+                warning("Filename cannot be empty.")
                 continue
             if not filename.lower().endswith(('.cxb', '.smallpox')):
-                print("Please save the file with either a .cxb or .smallpox extension.")
+                warning("Please save the file with either a .cxb or .smallpox extension.")
                 continue
             output_file = os.path.join(script_dir, filename)
             output_ext = os.path.splitext(output_file)[1].lower()
@@ -231,9 +287,9 @@ def pack_xml_files():
                     if 0 <= idx < len(file_names):
                         selected_files = [file_names[idx]]
                         break
-                    print(f"Please enter a number between 1 and {len(file_names)}")
+                    warning(f"Please enter a number between 1 and {len(file_names)}")
                 except ValueError:
-                    print("Please enter a valid number")
+                    warning("Please enter a valid number")
 
         name = selected_files[0]
         path = os.path.join(input_folder, name)
@@ -242,15 +298,17 @@ def pack_xml_files():
         try:
             xml_data = read_xml_as_bytes(path)
         except Exception as e:
-            print(f"⚠️  Warning: Could not process {name} - {str(e)}.")
+            warning(f"Could not process {name} - {str(e)}.")
             return
 
         file_data = build_file_data(xml_data)
+        if ask_smallpox_layout():
+            file_data += b"\x01"
 
         with open(output_file, "wb") as f:
-            f.write(file_data + b"\x01")
+            f.write(file_data)
 
-        print(f"✅ Successfully created {output_file} with 1 XML file")
+        success(f"Successfully created {output_file} with 1 XML file")
         return
 
     name_size = ask_cxb_layout()
@@ -265,12 +323,12 @@ def pack_xml_files():
         try:
             xml_data = read_xml_as_bytes(path, minify=True)
         except Exception as e:
-            print(f"⚠️  Warning: Could not process {name} - {str(e)}. Skipping...")
+            warning(f"Could not process {name} - {str(e)}. Skipping...")
             continue
 
         entry_name = name.split(".")[0].encode("ascii")
         if len(entry_name) >= name_size:
-            print(f"⚠️  Warning: {name} - name is too long for a {name_size}+{SIZE_FIELD_SIZE} entry. Skipping...")
+            warning(f"{name} - name is too long for a {name_size}+{SIZE_FIELD_SIZE} entry. Skipping...")
             continue
 
         file_data = build_file_data(xml_data)
@@ -295,7 +353,7 @@ def pack_xml_files():
         all_data = b''.join(file_datas)
         f.write(all_data)
 
-    print(f"✅ Successfully created {output_file} with {len(file_names)} XML files")
+    success(f"Successfully created {output_file} with {len(file_names)} XML files")
 
 if __name__ == "__main__":
     pack_xml_files()

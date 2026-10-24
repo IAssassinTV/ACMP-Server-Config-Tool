@@ -2,6 +2,37 @@
 
 All notable changes to ACMP-Server-Config-Tool are listed here, newest first.
 
+## 2026-10-24
+
+### Fixed
+- `extract.py` no longer leaves an XML file unformatted when it mixes text and elements (AC4's
+  `playlistconfig.xml` has a few stray `-->` text nodes). The text is kept byte for byte on the
+  line of the tag before it and only the whitespace between tags is added, so repacking still
+  restores the original bytes.
+
+### Changed
+- Console output no longer uses emoji. Successes are green, warnings yellow and errors red when
+  the console supports ANSI colors; redirected output stays plain.
+- `extract.py` prints one line per archive segment and a blank line before each `Analyzing` block,
+  so the output of one XML file is easy to tell apart from the next.
+- `repack.py` lists the `.smallpox` layouts as **AC3** and **AC4** only, because ACB and ACR have
+  no `.smallpox` archives.
+
+## 2026-10-21
+
+### Added
+- Assassin's Creed IV Black Flag (AC4) support.
+  - `repack.py` asks for the `.smallpox` layout too: **ACB/ACR/AC3** (ends with a `0x01` byte) or
+    **AC4** (no trailing byte).
+  - The `.cxb` layout with 40+8 byte file table entries is now listed as **ACR/AC3/AC4**.
+
+### Changed
+- A `.smallpox` is extracted to and packed from the subfolder named after the part of its name
+  that follows `gamesettings_c<number>_`, in upper case with its words split by underscores, so
+  every archive gets its own folder: for example `*_pc_specific` → `PC_SPECIFIC/`,
+  `*_TestCompatPack` → `TEST_COMPAT_PACK/`, `*_EventRewardAPlusHack` → `EVENT_REWARD_A_PLUS_HACK/`.
+  `STEP_N/` and `PARAM_CHANGES/` stay as before.
+
 ## 2026-10-15
 
 ### Added
